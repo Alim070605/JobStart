@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>JobStart — студенттерге арналған жұмыс және стажировка</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
+<link href="style/style.css" rel="stylsheet">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <button class="logo" data-act="nav" data-id="home" aria-label="JobStart — басты бет">JobStart<i></i></button>
+    <nav class="main" id="nav" aria-label="Негізгі мәзір"></nav>
+    <div class="auth" id="auth"></div>
+  </div>
+</header>
+<main class="wrap" id="app"></main>
+<footer class="foot"><div class="wrap">JobStart — студенттерге алғашқы жұмыс тәжірибесін табуды жеңілдететін ақпараттық жүйе. Демо нұсқа: деректер осы браузерде сақталады.</div></footer>
+<dialog id="dlg" aria-labelledby="dlgTitle"></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(async function(){
+/* ---------- Сақтау (localStorage, қол жетпесе жадта) ---------- */
+const mem={};
+const store={
+  get(k){try{const v=localStorage.getItem(k);if(v)return JSON.parse(v)}catch(e){}return mem[k]??null},
+  set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+};
+async function hash(s){
+  try{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+  catch(e){return 'p:'+s}
+}
+
+/* ---------- Тұрақтылар ---------- */
+const KEY='jobstart:v1';
+const CITIES=['Алматы','Астана','Шымкент','Қарағанды','Ақтөбе','Атырау'];
+const FIELDS=['IT','Маркетинг','Қаржы','Дизайн','Білім','Инженерия','Құқық'];
+const TL={job:'Жұмыс',intern:'Стажировка'};
+const STATUS={new:'Жаңа',seen:'Қаралды',invite:'Әңгімеге шақырылды',reject:'Бас тартылды'};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=p=>p+Math.random().toString(36).slice(2,9);
+const $=(s,r=document)=>r.querySelector(s);
+const ago=t=>{const d=Math.floor((Date.now()-t)/864e5);return d<=0?'Бүгін':d===1?'Кеше':d+' күн бұрын'};
+const opts=(arr,sel,ph)=>(ph?`<option value="">${ph}</option>`:'')+arr.map(x=>`<option${x===sel?' selected':''}>${esc(x)}</option>`).join('');
+
+/* ---------- Деректер базасы (демо) ---------- */
+let db;
+const save=()=>store.set(KEY,db);
+async function initDB(){
+  db=store.get(KEY);
+  if(db)return;
+  const h=await hash('demo123');
+  const d=n=>Date.now()-n*864e5-Math.random()*3e7;
+  const V=(o)=>({id:uid('v'),date:d(o.d),...o});
+  db={
+    session:null,favs:{},apps:[],
+    users:[
+      {id:'u_stu',name:'Айдана Серікқызы',email:'student@demo.kz',pass:h,role:'student'},
+      {id:'u_ayan',name:'Әлібек Нұрлан',email:'alibek@demo.kz',pass:h,role:'student'},
+      {id:'u_emp',name:'Qazaq Tech HR',email:'employer@demo.kz',pass:h,role:'employer',company:'Qazaq Tech'}
+    ],
+    resumes:{
+      u_stu:{fullName:'Айдана Серікқызы',university:'ҚазҰУ',course:'3',field:'Маркетинг',city:'Алматы',phone:'+7 701 000 00 00',skills:'SMM, Canva, Excel, ағылшын тілі B2',about:'Контент жасауды және әлеуметтік желілерді жүргізуді үйреніп жатырмын.'},
+      u_ayan:{fullName:'Әлібек Нұрлан',university:'ЕҰУ',course:'4',field:'IT',city:'Астана',phone:'+7 702 111 22 33',skills:'HTML, CSS, JavaScript, Git',about:'Жеке жобаларда веб-сайттар жасаймын, стажировка іздеймін.'}
+    },
+    vacancies:[
+      V({d:0,ownerId:'u_emp',title:'Junior веб-әзірлеуші',company:'Qazaq Tech',city:'Алматы',field:'IT',type:'intern',salary:'80 000 ₸ / ай',schedule:'Жартылай күн, оқумен қатар',desc:'Команданың тәжірибелі әзірлеушілерімен бірге клиенттер сайттарын жасайсыз. Ментор бекітіледі.',reqs:['HTML, CSS және JavaScript негіздері','Git-пен жұмыс істей білу','Үйренуге құлшыныс']}),
+      V({d:1,ownerId:'u_emp',title:'UI/UX дизайнер-стажер',company:'Qazaq Tech',city:'Алматы',field:'Дизайн',type:'intern',salary:'70 000 ₸ / ай',schedule:'Икемді кесте',desc:'Мобильді қосымша макеттерін Figma-да әзірлейсіз, пайдаланушы сынақтарына қатысасыз.',reqs:['Figma-ның базалық білімі','Портфолио (оқу жобалары да болады)']}),
+      V({d:3,ownerId:'u_emp',title:'Контент-менеджер',company:'Qazaq Tech',city:'Астана',field:'Маркетинг',type:'job',salary:'150 000 ₸ / ай',schedule:'Толық жұмыс күні',desc:'Блог пен әлеуметтік желілерге мәтін мен визуал дайындайсыз, жарияланым кестесін жүргізесіз.',reqs:['Қазақ және орыс тілдерінде сауатты жазу','Canva не ұқсас құрал','Тәжірибе міндетті емес']}),
+      V({d:6,ownerId:'u_emp',title:'Қолдау қызметінің операторы',company:'Qazaq Tech',city:'Астана',field:'IT',type:'job',salary:'140 000 ₸ / ай',schedule:'Ауысымды, 2/2',desc:'Чат арқылы клиенттердің сұрақтарына жауап бересіз. Оқыту компания есебінен.',reqs:['Коммуникативтілік','Екі тілде еркін сөйлеу']}),
+      V({d:2,ownerId:'seed',title:'SMM-маман стажер',company:'Dala Media',city:'Шымкент',field:'Маркетинг',type:'intern',salary:'60 000 ₸ / ай',schedule:'Жартылай күн',desc:'Брендтердің Instagram және TikTok аккаунттарына контент-жоспар жасауға көмектесесіз.',reqs:['Әлеуметтік желілерді түсіну','Фото және бейне түсіру дағдысы артықшылық']}),
+      V({d:4,ownerId:'seed',title:'Қаржы талдаушысының көмекшісі',company:'Altyn Capital',city:'Астана',field:'Қаржы',type:'job',salary:'200 000 ₸ / ай',schedule:'Толық жұмыс күні',desc:'Есептілікті дайындау, кесте мен диаграммалар жасау, талдаушыға деректер жинау.',reqs:['Excel-ді жақсы білу','Экономика не қаржы бойынша оқу','Мұқияттылық']}),
+      V({d:5,ownerId:'seed',title:'Бухгалтер көмекшісі',company:'Altyn Capital',city:'Қарағанды',field:'Қаржы',type:'intern',salary:'75 000 ₸ / ай',schedule:'Күніне 4 сағат',desc:'Алғашқы құжаттарды өңдеу, 1С-та енгізу, аға бухгалтерге көмек.',reqs:['Бухгалтерлік есеп негіздері','1С білу артықшылық']}),
+      V({d:2,ownerId:'seed',title:'Инженер-стажер (мұнай-газ)',company:'Caspian Energy',city:'Атырау',field:'Инженерия',type:'intern',salary:'120 000 ₸ / ай',schedule:'Толық күн, 3 ай',desc:'Өндірістік бөлімде техникалық құжаттамамен және далалық өлшеулермен танысасыз.',reqs:['Техникалық мамандықтың 3–4 курсы','Қауіпсіздік техникасын сақтау']}),
+      V({d:8,ownerId:'seed',title:'Заңгер көмекшісі',company:'Әділет Консалт',city:'Алматы',field:'Құқық',type:'intern',salary:'65 000 ₸ / ай',schedule:'Жартылай күн',desc:'Шарттар жобасын дайындау, сот құжаттарын жинақтау, заңнаманы іздеу.',reqs:['Құқықтану бағытында оқу','Құжатпен жұмыс істеу сауаттылығы']}),
+      V({d:7,ownerId:'seed',title:'Ағылшын тілі репетиторы',company:'LinguaHub',city:'Ақтөбе',field:'Білім',type:'job',salary:'3 000 ₸ / сабақ',schedule:'Кешкі уақыт',desc:'Мектеп оқушыларымен шағын топта сабақ жүргізесіз. Әдістемелік материалдар беріледі.',reqs:['Ағылшын тілі B2 және одан жоғары','Балалармен жұмыс істеуге құлшыныс']}),
+      V({d:1,ownerId:'seed',title:'Деректер талдаушысы (Junior)',company:'Steppe Data',city:'Алматы',field:'IT',type:'job',salary:'220 000 ₸ / ай',schedule:'Гибрид',desc:'SQL мен Python арқылы есептер жасайсыз, дашбордтарды жаңартасыз.',reqs:['SQL негіздері','Python не Excel','Статистика бойынша базалық білім']}),
+      V({d:9,ownerId:'seed',title:'Графикалық дизайнер',company:'Dala Media',city:'Қарағанды',field:'Дизайн',type:'job',salary:'170 000 ₸ / ай',schedule:'Толық жұмыс күні',desc:'Баннер, постер және әлеуметтік желіге арналған визуалдар дайындайсыз.',reqs:['Photoshop / Illustrator','Портфолио']})
+    ]
+  };
+  const first=db.vacancies[0];
+  db.apps.push({id:uid('a'),vacId:first.id,userId:'u_ayan',date:Date.now()-864e5,status:'new',msg:'Сәлем! Стажировкаға қатысуға дайынмын, портфолиом GitHub-та.'});
+  save();
+}
+await initDB();
+
+/* ---------- Күй ---------- */
+const S={view:'home',q:'',city:'',field:'',type:'all',sel:null,dlgVac:null};
+const me=()=>db.users.find(u=>u.id===db.session)||null;
+const byId=id=>db.vacancies.find(v=>v.id===id);
+const isFav=id=>(db.favs[db.session]||[]).includes(id);
+const wideMQ=matchMedia('(min-width:980px)');
+const wide=()=>wideMQ.matches;
+const dlg=$('#dlg');
+let toastT;
+function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove('show'),2600)}
+function openDlg(html){dlg.innerHTML=html;if(!dlg.open)dlg.showModal()}
+function closeDlg(){S.dlgVac=null;if(dlg.open)dlg.close()}
+dlg.addEventListener('click',e=>{if(e.target===dlg)closeDlg()});
+dlg.addEventListener('close',()=>{S.dlgVac=null});
+
+/* ---------- Шаблондар ---------- */
+function renderChrome(){
+  const u=me();
+  const items=[['home','Вакансиялар']];
+  if(u?.role==='student')items.push(['favs','Таңдаулылар'],['resume','Резюме'],['apps','Өтінімдерім']);
+  if(u?.role==='employer')items.push(['dash','Кабинет']);
+  $('#nav').innerHTML=items.map(([k,t])=>`<button data-act="nav" data-id="${k}"${S.view===k?' aria-current="page"':''}>${t}</button>`).join('');
+  $('#auth').innerHTML=u
+    ?`<span class="who">${esc(u.role==='employer'?(u.company||u.name):u.name)}</span><button class="btn" data-act="logout">Шығу</button>`
+    :`<button class="btn" data-act="auth" data-id="login">Кіру</button><button class="btn primary" data-act="auth" data-id="register">Тіркелу</button>`;
+}
+function emptyHTML(t,p,btn){return `<div class="empty"><p>${t}</p><p>${p}</p>${btn||''}</div>`}
+
+function rowHTML(v,mark){
+  return `<button class="row ${v.type}${mark&&S.sel===v.id?' sel':''}" data-act="open" data-id="${v.id}">
+    <span class="main"><strong>${esc(v.title)}</strong><span class="co">${esc(v.company)}</span><span class="co">${esc(v.city)}</span></span>
+    <span class="meta"><span class="tag ${v.type}">${TL[v.type]}</span><span>${esc(v.salary)}</span><span>${ago(v.date)}</span>${isFav(v.id)?'<span class="heart" aria-label="Таңдаулыларда">♥</span>':''}</span>
+  </button>`;
+}
+
+function detailHTML(v,inDlg){
+  const u=me();
+  const app=u&&db.apps.find(a=>a.vacId===v.id&&a.userId===u.id);
+  let action;
+  if(u?.role==='employer')action='<p class="note">Өтінім жіберу үшін студент аккаунтымен кіріңіз.</p>';
+  else if(app)action=`<p class="note">Өтінім жіберілді: <span class="st ${app.status}">${STATUS[app.status]}</span></p>`;
+  else action=`<button class="btn primary" data-act="apply" data-id="${v.id}">Өтінім жіберу</button>`;
+  const fav=u?.role==='employer'?'':`<button class="btn" data-act="fav" data-id="${v.id}" aria-pressed="${isFav(v.id)}">${isFav(v.id)?'Таңдаулылардан алу':'Таңдаулыларға қосу'}</button>`;
+  return `<div class="dv">
+    ${inDlg?'<div class="dhead"><span class="tag '+v.type+'">'+TL[v.type]+'</span><button class="x" data-act="close" aria-label="Жабу">×</button></div>':'<span class="tag '+v.type+'">'+TL[v.type]+'</span>'}
+    <h2 id="${inDlg?'dlgTitle':'detTitle'}" style="margin-top:10px">${esc(v.title)}</h2>
+    <div class="facts"><span>${esc(v.company)}</span><span>${esc(v.city)}</span><span>${esc(v.field)}</span><span>${esc(v.salary)}</span><span>${esc(v.schedule)}</span></div>
+    <p style="margin:0">${esc(v.desc)}</p>
+    <h3>Талаптар</h3><ul>${v.reqs.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>
+    <div class="acts">${action}${fav}</div>
+  </div>`;
+}
+
+function homeHTML(){
+  return `<section class="hero">
+    <h1>Алғашқы жұмысыңды осы жерден тап</h1>
+    <p class="lead">Студенттерге арналған вакансиялар мен стажировкалар бір платформада. Тәжірибе талап етпейтін ұсыныстар да бар.</p>
+    <div class="finder">
+      <div class="seg" role="group" aria-label="Ұсыныс түрі">${[['all','Барлығы'],['job','Жұмыс'],['intern','Стажировка']].map(([k,t])=>`<button data-act="type" data-id="${k}" aria-pressed="${S.type===k}">${t}</button>`).join('')}</div>
+      <div class="fields">
+        <label>Мамандық немесе компания<input id="q" type="search" value="${esc(S.q)}" placeholder="Мысалы: дизайнер" autocomplete="off"></label>
+        <label>Қала<select id="city">${opts(CITIES,S.city,'Барлық қала')}</select></label>
+        <label>Сала<select id="field">${opts(FIELDS,S.field,'Барлық сала')}</select></label>
+      </div>
+    </div>
+  </section>
+  <section class="results">
+    <div><p class="count" id="count" aria-live="polite"></p><div class="list" id="list"></div></div>
+    <aside class="detail" id="detail" aria-label="Вакансия мәліметі"></aside>
+  </section>`;
+}
+
+function filtered(){
+  const q=S.q.trim().toLowerCase();
+  return db.vacancies.filter(v=>(S.type==='all'||v.type===S.type)&&(!S.city||v.city===S.city)&&(!S.field||v.field===S.field)&&(!q||(v.title+' '+v.company+' '+v.field).toLowerCase().includes(q))).sort((a,b)=>b.date-a.date);
+}
+function updateList(focusId){
+  const items=filtered();
+  if(wide()&&!items.some(v=>v.id===S.sel))S.sel=items[0]?.id||null;
+  $('#count').textContent=items.length?`${items.length} ұсыныс табылды`:'';
+  $('#list').innerHTML=items.length?items.map(v=>rowHTML(v,wide())).join(''):emptyHTML('Ештеңе табылмады','Іздеу сөзін қысқартыңыз немесе сүзгілерді өзгертіңіз.','<button class="btn" data-act="reset">Сүзгілерді тазалау</button>');
+  renderDetail();
+  if(focusId)$(`#list [data-id="${focusId}"]`)?.focus();
+}
+function renderDetail(){
+  const d=$('#detail');if(!d)return;
+  const v=byId(S.sel);
+  d.innerHTML=(v&&wide())?detailHTML(v,false):'';
+}
+
+function resumeHTML(u){
+  const r=db.resumes[u.id]||{fullName:u.name};
+  return `<section class="page"><div class="page-head"><h1>Менің резюмем</h1></div>
+  <form class="panel stack" data-form="resume">
+    <div class="grid2">
+      <label>Аты-жөні<input name="fullName" required value="${esc(r.fullName)}"></label>
+      <label>Телефон<input name="phone" type="tel" required value="${esc(r.phone||'')}" placeholder="+7 7__ ___ __ __"></label>
+      <label>Оқу орны<input name="university" required value="${esc(r.university||'')}"></label>
+      <label>Курс<select name="course">${opts(['1','2','3','4','5','6'],r.course)}</select></label>
+      <label>Мамандық саласы<select name="field">${opts(FIELDS,r.field)}</select></label>
+      <label>Қала<select name="city">${opts(CITIES,r.city)}</select></label>
+    </div>
+    <label>Дағдылар<input name="skills" value="${esc(r.skills||'')}" placeholder="Мысалы: HTML, Excel, ағылшын тілі"></label>
+    <label>Өзің туралы<textarea name="about">${esc(r.about||'')}</textarea></label>
+    <div><button class="btn primary" type="submit">Резюмені сақтау</button></div>
+  </form></section>`;
+}
+
+function favsHTML(u){
+  const ids=db.favs[u.id]||[];
+  const vs=ids.map(byId).filter(Boolean);
+  return `<section class="page"><div class="page-head"><h1>Таңдаулылар</h1></div>
+  <div class="list">${vs.length?vs.map(v=>rowHTML(v,false)).join(''):emptyHTML('Таңдаулы вакансия жоқ','Ұнаған вакансияны ашып, «Таңдаулыларға қосу» батырмасын басыңыз.','<button class="btn primary" data-act="nav" data-id="home">Вакансияларды қарау</button>')}</div></section>`;
+}
+
+function appsHTML(u){
+  const mine=db.apps.filter(a=>a.userId===u.id).sort((a,b)=>b.date-a.date);
+  return `<section class="page"><div class="page-head"><h1>Өтінімдерім</h1></div>
+  ${mine.length?`<div class="panel">${mine.map(a=>{const v=byId(a.vacId);return v?`<div class="approw"><strong>${esc(v.title)}</strong><span class="st ${a.status}">${STATUS[a.status]}</span><p>${esc(v.company)}, ${esc(v.city)}. Жіберілген күні: ${new Date(a.date).toLocaleDateString('kk-KZ')}</p></div>`:''}).join('')}</div>`
+  :emptyHTML('Өтінім жіберілмеген','Вакансияны таңдап, резюмеңізді жіберіңіз.','<button class="btn primary" data-act="nav" data-id="home">Вакансияларды қарау</button>')}</section>`;
+}
+
+function candHTML(a){
+  const cu=db.users.find(x=>x.id===a.userId)||{};
+  const r=db.resumes[a.userId]||{};
+  return `<div class="cand">
+    <h4>${esc(r.fullName||cu.name)}</h4>
+    <span class="co">${esc(r.university||'')}${r.course?', '+esc(r.course)+' курс':''}${r.field?', '+esc(r.field):''}</span>
+    ${r.skills?`<span><b>Дағдылар:</b> ${esc(r.skills)}</span>`:''}
+    ${r.about?`<span>${esc(r.about)}</span>`:''}
+    ${a.msg?`<span><b>Хабарлама:</b> ${esc(a.msg)}</span>`:''}
+    <span class="co">${esc(cu.email||'')} ${esc(r.phone||'')}</span>
+    <div class="row2"><label style="display:flex;align-items:center;gap:8px">Мәртебе
+      <select data-change="status" data-id="${a.id}">${Object.entries(STATUS).map(([k,t])=>`<option value="${k}"${a.status===k?' selected':''}>${t}</option>`).join('')}</select></label></div>
+  </div>`;
+}
+function dashHTML(u){
+  const vs=db.vacancies.filter(v=>v.ownerId===u.id);
+  const all=db.apps.filter(a=>vs.some(v=>v.id===a.vacId));
+  return `<section class="page"><div class="page-head"><h1>Жұмыс беруші кабинеті</h1><button class="btn primary" data-act="post">Вакансия жариялау</button></div>
+  <dl class="stats"><div><dt>Белсенді вакансиялар</dt><dd>${vs.length}</dd></div><div><dt>Барлық өтінімдер</dt><dd>${all.length}</dd></div><div><dt>Жаңа өтінімдер</dt><dd>${all.filter(a=>a.status==='new').length}</dd></div></dl>
+  ${vs.length?vs.map(v=>{const as=db.apps.filter(a=>a.vacId===v.id);return `<details class="vac"${as.length?' open':''}>
+    <summary><span class="tag ${v.type}">${TL[v.type]}</span><strong>${esc(v.title)}</strong><span class="co">${esc(v.city)}</span><span class="sp"></span><span class="co">Өтінім: ${as.length}</span></summary>
+    <div class="vbody">${as.length?as.map(candHTML).join(''):'<p class="note">Әзірге өтінім түскен жоқ.</p>'}
+      <div><button class="btn danger" data-act="close-vac" data-id="${v.id}">Вакансияны жабу</button></div></div></details>`}).join('')
+  :emptyHTML('Әзірге вакансия жоқ','Алғашқы вакансияңызды жариялаңыз, студенттер бірден көреді.','<button class="btn primary" data-act="post">Вакансия жариялау</button>')}
+  </section>`;
+}
+
+function render(){
+  let u=me();
+  const need={favs:'student',resume:'student',apps:'student',dash:'employer'}[S.view];
+  if(need&&u?.role!==need)S.view='home';
+  u=me();
+  renderChrome();
+  const app=$('#app');
+  switch(S.view){
+    case 'favs':app.innerHTML=favsHTML(u);break;
+    case 'resume':app.innerHTML=resumeHTML(u);break;
+    case 'apps':app.innerHTML=appsHTML(u);break;
+    case 'dash':app.innerHTML=dashHTML(u);break;
+    default:app.innerHTML=homeHTML();updateList();
+  }
+}
+function go(v){S.view=v;render();window.scrollTo(0,0)}
+function refresh(){
+  renderChrome();
+  if(dlg.open&&S.dlgVac&&byId(S.dlgVac))dlg.innerHTML=detailHTML(byId(S.dlgVac),true);
+  if(S.view==='home')updateList();else render();
+}
+
+/* ---------- Диалогтар ---------- */
+function authHTML(mode){
+  const reg=mode==='register';
+  return `<div class="dhead"><h2 id="dlgTitle">${reg?'Тіркелу':'Жүйеге кіру'}</h2><button class="x" data-act="close" aria-label="Жабу">×</button></div>
+  <form class="stack" data-form="${mode}">
+    ${reg?`<label>Аты-жөні<input name="name" required autocomplete="name"></label>
+    <fieldset class="roles"><legend>Мен</legend>
+      <label class="radio"><input type="radio" name="role" value="student" checked> Студентпін</label>
+      <label class="radio"><input type="radio" name="role" value="employer"> Жұмыс берушімін</label></fieldset>
+    <label id="coWrap" hidden>Компания атауы<input name="company"></label>`:''}
+    <label>Электрондық пошта<input name="email" type="email" required autocomplete="email"></label>
+    <label>Құпия сөз<input name="pass" type="password" required minlength="6" autocomplete="${reg?'new-password':'current-password'}"></label>
+    <p class="err" id="authErr" role="alert"></p>
+    <button class="btn primary" type="submit">${reg?'Тіркелу':'Кіру'}</button>
+  </form>
+  <p class="switch">${reg?'Аккаунт бар ма?':'Аккаунт жоқ па?'} <button class="link" data-act="auth" data-id="${reg?'login':'register'}">${reg?'Кіру':'Тіркелу'}</button></p>
+  <div class="demo"><p>Демо аккаунттармен көріп шығыңыз:</p>
+    <button class="btn" data-act="demo" data-id="student">Студент ретінде</button>
+    <button class="btn" data-act="demo" data-id="employer">Жұмыс беруші ретінде</button></div>`;
+}
+function applyHTML(v,u){
+  const r=db.resumes[u.id];
+  return `<div class="dhead"><h2 id="dlgTitle">Өтінім: ${esc(v.title)}</h2><button class="x" data-act="close" aria-label="Жабу">×</button></div>
+  <form class="stack" data-form="apply" data-id="${v.id}">
+    <div class="summary"><b>${esc(r.fullName)}</b><br>${esc(r.university)}, ${esc(r.course)} курс, ${esc(r.field)}<br>${esc(r.phone)}</div>
+    <label>Жұмыс берушіге хабарлама (міндетті емес)<textarea name="msg" placeholder="Неге осы вакансия сізге қызық?"></textarea></label>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" type="submit">Өтінімді жіберу</button><button class="btn" type="button" data-act="close">Болдырмау</button></div>
+  </form>`;
+}
+function postHTML(){
+  return `<div class="dhead"><h2 id="dlgTitle">Вакансия жариялау</h2><button class="x" data-act="close" aria-label="Жабу">×</button></div>
+  <form class="stack" data-form="post">
+    <label>Лауазым<input name="title" required placeholder="Мысалы: Junior дизайнер"></label>
+    <div class="grid2">
+      <label>Түрі<select name="type"><option value="job">Жұмыс</option><option value="intern">Стажировка</option></select></label>
+      <label>Қала<select name="city">${opts(CITIES)}</select></label>
+      <label>Сала<select name="field">${opts(FIELDS)}</select></label>
+      <label>Жалақы<input name="salary" placeholder="Мысалы: 100 000 ₸ / ай"></label>
+    </div>
+    <label>Жұмыс кестесі<input name="schedule" placeholder="Мысалы: жартылай күн"></label>
+    <label>Сипаттама<textarea name="desc" required></textarea></label>
+    <label>Талаптар (әр жолға біреуден)<textarea name="reqs" placeholder="Excel білу&#10;Оқу орнында 2-4 курс"></textarea></label>
+    <button class="btn primary" type="submit">Жариялау</button>
+  </form>`;
+}
+
+/* ---------- Әрекеттер ---------- */
+function requireRole(role){
+  const u=me();
+  if(!u){toast('Алдымен жүйеге кіріңіз');openDlg(authHTML('login'));return null}
+  if(u.role!==role){toast(role==='student'?'Бұл әрекет студенттерге арналған':'Бұл әрекет жұмыс берушілерге арналған');return null}
+  return u;
+}
+async function loginAs(email){
+  const u=db.users.find(x=>x.email===email);
+  db.session=u.id;save();closeDlg();
+  toast('Қош келдіңіз, '+u.name);
+  S.view=u.role==='employer'?'dash':'home';render();window.scrollTo(0,0);
+}
+
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');if(!el)return;
+  const id=el.dataset.id;
+  switch(el.dataset.act){
+    case 'nav':go(id);break;
+    case 'type':
+      S.type=id;
+      document.querySelectorAll('.seg button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.id===id)));
+      updateList();break;
+    case 'reset':
+      Object.assign(S,{q:'',city:'',field:'',type:'all'});render();break;
+    case 'open':{
+      S.sel=id;
+      if(wide()&&$('#detail'))updateList(id);
+      else{S.dlgVac=id;openDlg(detailHTML(byId(id),true))}
+      break;}
+    case 'close':closeDlg();break;
+    case 'auth':openDlg(authHTML(id));break;
+    case 'demo':loginAs(id==='student'?'student@demo.kz':'employer@demo.kz');break;
+    case 'logout':db.session=null;save();toast('Сіз жүйеден шықтыңыз');go('home');break;
+    case 'fav':{
+      const u=requireRole('student');if(!u)break;
+      const list=db.favs[u.id]=db.favs[u.id]||[];
+      const i=list.indexOf(id);
+      if(i>=0){list.splice(i,1);toast('Таңдаулылардан алынды')}else{list.push(id);toast('Таңдаулыларға қосылды')}
+      save();refresh();break;}
+    case 'apply':{
+      const u=requireRole('student');if(!u)break;
+      if(!db.resumes[u.id]){toast('Алдымен резюмені толтырыңыз');closeDlg();go('resume');break}
+      S.dlgVac=null;openDlg(applyHTML(byId(id),u));break;}
+    case 'post':openDlg(postHTML());break;
+    case 'close-vac':
+      if(el.dataset.sure){
+        db.vacancies=db.vacancies.filter(v=>v.id!==id);
+        db.apps=db.apps.filter(a=>a.vacId!==id);
+        save();toast('Вакансия жабылды');render();
+      }else{el.dataset.sure='1';el.textContent='Растау: вакансияны жабу'}
+      break;
+  }
+});
+
+document.addEventListener('submit',async e=>{
+  e.preventDefault();
+  const f=e.target,kind=f.dataset.form;if(!kind)return;
+  const d=Object.fromEntries(new FormData(f));
+  const err=$('#authErr');
+  if(kind==='login'){
+    const u=db.users.find(x=>x.email===d.email.trim().toLowerCase());
+    if(!u||u.pass!==await hash(d.pass)){err.textContent='Пошта немесе құпия сөз дұрыс емес. Тексеріп, қайта енгізіңіз.';return}
+    loginAs(u.email);
+  }else if(kind==='register'){
+    const email=d.email.trim().toLowerCase();
+    if(db.users.some(x=>x.email===email)){err.textContent='Бұл пошта тіркелген. «Кіру» батырмасын басыңыз.';return}
+    if(d.role==='employer'&&!(d.company||'').trim()){err.textContent='Компания атауын енгізіңіз.';return}
+    const u={id:uid('u'),name:d.name.trim(),email,pass:await hash(d.pass),role:d.role,company:(d.company||'').trim()};
+    db.users.push(u);save();loginAs(email);
+  }else if(kind==='resume'){
+    const u=me();db.resumes[u.id]=d;save();toast('Резюме сақталды');
+  }else if(kind==='apply'){
+    const u=me(),vid=f.dataset.id;
+    if(!db.apps.some(a=>a.vacId===vid&&a.userId===u.id))
+      db.apps.push({id:uid('a'),vacId:vid,userId:u.id,date:Date.now(),status:'new',msg:(d.msg||'').trim()});
+    save();closeDlg();toast('Өтінім жіберілді');refresh();
+  }else if(kind==='post'){
+    const u=me();
+    db.vacancies.unshift({id:uid('v'),date:Date.now(),ownerId:u.id,title:d.title.trim(),company:u.company||u.name,city:d.city,field:d.field,type:d.type,salary:d.salary.trim()||'Келісім бойынша',schedule:d.schedule.trim()||'Келісім бойынша',desc:d.desc.trim(),reqs:d.reqs.split('\n').map(s=>s.trim()).filter(Boolean)});
+    save();closeDlg();toast('Вакансия жарияланды');render();
+  }
+});
+
+document.addEventListener('input',e=>{
+  if(e.target.id==='q'){S.q=e.target.value;updateList()}
+});
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.id==='city'){S.city=t.value;updateList()}
+  else if(t.id==='field'){S.field=t.value;updateList()}
+  else if(t.name==='role'){
+    const w=$('#coWrap');w.hidden=t.value!=='employer';
+    w.querySelector('input').required=t.value==='employer';
+  }else if(t.dataset.change==='status'){
+    const a=db.apps.find(x=>x.id===t.dataset.id);
+    if(a){a.status=t.value;save();toast('Мәртебе жаңартылды')}
+  }
+});
+wideMQ.addEventListener('change',()=>{if(S.view==='home')updateList()});
+
+render();
+})();
+</script>
+</body>
+</html>
